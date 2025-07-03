@@ -237,87 +237,50 @@ const CharacterRelationshipWeb = () => {
   };
 
   const runPhysicsSimulation = useCallback(() => {
-    if (characters.length < 2) return;
+    if (characters.length < 1) return;
     
     setSimulation({ running: true });
     
-    const iterations = 100;
-    const centerX = 500;
-    const centerY = 400;
-    const repulsionForce = 2000;
-    const attractionForce = 0.01;
-    const dampening = 0.9;
+    // SVG dimensions and safe margins
+    const svgWidth = 1000;
+    const svgHeight = 800;
+    const margin = 80; // Safe margin from edges (accounting for node size + labels)
+    const centerX = svgWidth / 2;
+    const centerY = svgHeight / 2;
     
-    let positions = characters.map(char => ({
-      ...char,
-      vx: 0,
-      vy: 0
-    }));
-
-    for (let iter = 0; iter < iterations; iter++) {
-      // Apply repulsion between all nodes
-      for (let i = 0; i < positions.length; i++) {
-        for (let j = i + 1; j < positions.length; j++) {
-          const dx = positions[i].x - positions[j].x;
-          const dy = positions[i].y - positions[j].y;
-          const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = repulsionForce / (distance * distance);
-          
-          const fx = (dx / distance) * force;
-          const fy = (dy / distance) * force;
-          
-          positions[i].vx += fx;
-          positions[i].vy += fy;
-          positions[j].vx -= fx;
-          positions[j].vy -= fy;
-        }
-      }
-
-      // Apply attraction for connected nodes
-      relationships.forEach(rel => {
-        const from = positions.find(p => p.id === rel.from);
-        const to = positions.find(p => p.id === rel.to);
-        if (from && to && (rel.fromType !== 'Neutral' || rel.toType !== 'Neutral')) {
-          const dx = to.x - from.x;
-          const dy = to.y - from.y;
-          const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-          const optimalDistance = 150;
-          const force = (distance - optimalDistance) * attractionForce;
-          
-          const fx = (dx / distance) * force;
-          const fy = (dy / distance) * force;
-          
-          from.vx += fx;
-          from.vy += fy;
-          to.vx -= fx;
-          to.vy -= fy;
-        }
-      });
-
-      // Center attraction
-      positions.forEach(pos => {
-        const dx = centerX - pos.x;
-        const dy = centerY - pos.y;
-        pos.vx += dx * 0.001;
-        pos.vy += dy * 0.001;
-      });
-
-      // Update positions
-      positions.forEach(pos => {
-        pos.x += pos.vx;
-        pos.y += pos.vy;
-        pos.vx *= dampening;
-        pos.vy *= dampening;
-        
-        // Keep nodes within the visible SVG bounds
-        pos.x = Math.max(50, Math.min(950, pos.x));
-        pos.y = Math.max(50, Math.min(750, pos.y));
-      });
+    // Calculate the largest possible radius for the polygon
+    const maxRadiusX = (svgWidth - 2 * margin) / 2;
+    const maxRadiusY = (svgHeight - 2 * margin) / 2;
+    const radius = Math.min(maxRadiusX, maxRadiusY);
+    
+    // Special case: single character goes to center
+    if (characters.length === 1) {
+      const singleChar = characters[0];
+      setCharacters([{ ...singleChar, x: centerX, y: centerY }]);
+      setSimulation({ running: false });
+      return;
     }
+    
+    // For multiple characters, arrange in regular n-gon
+    const angleStep = (2 * Math.PI) / characters.length;
+    
+    // Create new positions array with characters arranged in equilateral n-gon
+    const newPositions = characters.map((char, index) => {
+      // Start at top (-π/2) and go clockwise
+      const angle = -Math.PI / 2 + (index * angleStep);
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle);
+      
+      return {
+        ...char,
+        x: Math.round(x), // Round for cleaner positioning
+        y: Math.round(y)
+      };
+    });
 
-    setCharacters(positions.map(({ vx, vy, ...char }) => char));
+    setCharacters(newPositions);
     setSimulation({ running: false });
-  }, [characters, relationships]);
+  }, [characters]);
 
   const handleNameClick = (e, character) => {
     e.preventDefault();
@@ -1339,6 +1302,7 @@ const CharacterRelationshipWeb = () => {
               
               const shouldFadeNode = isIsolated && !isTheIsolatedNode && !hasRelationshipWithIsolated;
               const nodeOpacity = shouldFadeNode ? 0.3 : 1.0; // Fade unrelated nodes to 30%
+              const nodeScale = isTheIsolatedNode ? 1.8 : 1.0; // Scale up isolated node by 1.8x
               
               return (
                 <g key={character.id} opacity={nodeOpacity}>
@@ -1347,14 +1311,14 @@ const CharacterRelationshipWeb = () => {
                     <g>
                       <defs>
                         <clipPath id={`clip-${character.id}`}>
-                          <circle cx={animatedPos.x} cy={animatedPos.y} r="28" />
+                          <circle cx={animatedPos.x} cy={animatedPos.y} r={28 * nodeScale} />
                         </clipPath>
                       </defs>
                       {/* Outer glow for photo nodes */}
                       <circle
                         cx={animatedPos.x}
                         cy={animatedPos.y}
-                        r="32"
+                        r={32 * nodeScale}
                         fill={isSelected ? "#a855f7" : "#06b6d4"}
                         opacity="0.2"
                         filter="url(#nodeGlow)"
@@ -1364,7 +1328,7 @@ const CharacterRelationshipWeb = () => {
                       <circle
                         cx={animatedPos.x}
                         cy={animatedPos.y}
-                        r="35"
+                        r={35 * nodeScale}
                         fill="transparent"
                         className={`${isSelectable ? 'cursor-pointer' : 'cursor-move'}`}
                         onClick={(e) => handleNodeClick(e, character)}
@@ -1373,10 +1337,10 @@ const CharacterRelationshipWeb = () => {
                       />
                       <image
                         href={character.photo}
-                        x={animatedPos.x - 28}
-                        y={animatedPos.y - 28}
-                        width="56"
-                        height="56"
+                        x={animatedPos.x - (28 * nodeScale)}
+                        y={animatedPos.y - (28 * nodeScale)}
+                        width={56 * nodeScale}
+                        height={56 * nodeScale}
                         clipPath={`url(#clip-${character.id})`}
                         preserveAspectRatio="xMidYMid slice"
                         className="pointer-events-none"
@@ -1384,7 +1348,7 @@ const CharacterRelationshipWeb = () => {
                       <circle
                         cx={animatedPos.x}
                         cy={animatedPos.y}
-                        r="28"
+                        r={28 * nodeScale}
                         fill="none"
                         stroke={isSelected ? "#a855f7" : "#06b6d4"}
                         strokeWidth={isSelected ? "3" : "2"}
@@ -1398,7 +1362,7 @@ const CharacterRelationshipWeb = () => {
                       <circle
                         cx={animatedPos.x}
                         cy={animatedPos.y}
-                        r="32"
+                        r={32 * nodeScale}
                         fill={isSelected ? "url(#selectedNodeGradient)" : "url(#nodeGradient)"}
                         opacity="0.3"
                         filter="url(#nodeGlow)"
@@ -1407,7 +1371,7 @@ const CharacterRelationshipWeb = () => {
                       <circle
                         cx={animatedPos.x}
                         cy={animatedPos.y}
-                        r="28"
+                        r={28 * nodeScale}
                         fill={isSelected ? "url(#selectedNodeGradient)" : "url(#nodeGradient)"}
                         stroke={isSelected ? "#a855f7" : "#06b6d4"}
                         strokeWidth={isSelected ? "3" : "2"}
@@ -1425,7 +1389,7 @@ const CharacterRelationshipWeb = () => {
                       <circle
                         cx={animatedPos.x}
                         cy={animatedPos.y}
-                        r="35"
+                        r={35 * nodeScale}
                         fill="none"
                         stroke="#a855f7"
                         strokeWidth="2"
@@ -1436,7 +1400,7 @@ const CharacterRelationshipWeb = () => {
                       <circle
                         cx={animatedPos.x}
                         cy={animatedPos.y}
-                        r="40"
+                        r={40 * nodeScale}
                         fill="none"
                         stroke="#a855f7"
                         strokeWidth="1"
@@ -1449,7 +1413,7 @@ const CharacterRelationshipWeb = () => {
                   )}
                   <text
                     x={animatedPos.x}
-                    y={animatedPos.y + 40}
+                    y={animatedPos.y + (40 + (nodeScale - 1) * 28)} // Adjust text position based on node scale
                     textAnchor="middle"
                     className="text-white text-sm font-medium cursor-pointer hover:text-cyan-300 transition-colors duration-200"
                     fill="white"
@@ -1459,7 +1423,7 @@ const CharacterRelationshipWeb = () => {
                   </text>
                   <text
                     x={animatedPos.x}
-                    y={animatedPos.y + 55}
+                    y={animatedPos.y + (55 + (nodeScale - 1) * 28)} // Adjust text position based on node scale
                     textAnchor="middle"
                     className="text-slate-400 text-xs pointer-events-none select-none"
                     fill="#94a3b8"
